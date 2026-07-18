@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { insertLead } from "@/lib/db";
+import { after } from "next/server";
+import { insertLead, updateLeadEmailSent } from "@/lib/db";
 import { sendNotificationEmail } from "@/lib/mailer";
 
 // =============================================================================
 // CONTACT FORM API ROUTE — POST /api/contact
 // -----------------------------------------------------------------------------
-// Every submission is saved to the SQLite `leads` table (always, regardless
-// of email outcome) and then emailed to CONTACT_TO_EMAIL via SMTP.
-// See .env.example for the required SMTP_* and CONTACT_TO_EMAIL variables.
+// Every submission is saved to the SQLite `leads` table immediately, and the
+// response is sent back to the browser right away. The email notification is
+// sent afterwards via `after()`, so a slow SMTP connection (common on a cold
+// serverless start) can never delay the response or cause the request to be
+// killed by the platform's execution time limit. See .env.example for the
+// required SMTP_* and CONTACT_TO_EMAIL variables.
 // =============================================================================
 
 type ContactPayload = {
@@ -51,23 +55,28 @@ export async function POST(req: NextRequest) {
   const email = body.email?.trim() || "";
   const message = body.message.trim();
 
-  const emailSent = await sendNotificationEmail({
-    subject: `New enquiry from ${name} — Tanvi Mayat website`,
-    replyTo: email || undefined,
-    text: `Name: ${name}\nPhone: ${phone}\nEmail: ${email || "(not provided)"}\n\nMessage:\n${message}`,
-    html: `
-      <div style="font-family: sans-serif; font-size: 14px; color: #1a1a1a;">
-        <h2 style="margin-bottom: 12px;">New enquiry from the website</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Phone:</strong> ${phone}</p>
-        <p><strong>Email:</strong> ${email || "(not provided)"}</p>
-        <p><strong>Message:</strong></p>
-        <p style="white-space: pre-wrap;">${message}</p>
-      </div>
-    `,
+  const lead = await insertLead({ name, phone, email, message, emailSent: false });
+
+  after(async () => {
+    const sent = await sendNotificationEmail({
+      subject: `New enquiry from ${name} — Tanvi Mayat website`,
+      replyTo: email || undefined,
+      text: `Name: ${name}\nPhone: ${phone}\nEmail: ${email || "(not provided)"}\n\nMessage:\n${message}`,
+      html: `
+        <div style="font-family: sans-serif; font-size: 14px; color: #1a1a1a;">
+          <h2 style="margin-bottom: 12px;">New enquiry from the website</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Phone:</strong> ${phone}</p>
+          <p><strong>Email:</strong> ${email || "(not provided)"}</p>
+          <p><strong>Message:</strong></p>
+          <p style="white-space: pre-wrap;">${message}</p>
+        </div>
+      `,
+    });
+    if (sent) {
+      await updateLeadEmailSent(lead.id);
+    }
   });
 
-  const lead = await insertLead({ name, phone, email, message, emailSent });
-
-  return NextResponse.json({ ok: true, id: lead.id, emailSent }, { status: 200 });
+  return NextResponse.json({ ok: true, id: lead.id }, { status: 200 });
 }

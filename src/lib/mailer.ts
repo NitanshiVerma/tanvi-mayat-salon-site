@@ -33,6 +33,9 @@ export async function sendNotificationEmail(opts: {
       port: Number(SMTP_PORT),
       secure: Number(SMTP_PORT) === 465,
       auth: { user: SMTP_USER, pass: SMTP_PASS },
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 8000,
     });
 
     await transporter.sendMail({

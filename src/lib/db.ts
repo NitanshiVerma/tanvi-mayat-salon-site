@@ -180,4 +180,20 @@ export async function updateBookingStatus(id: number, status: Booking["status"])
   return result.rows[0] as unknown as Booking | undefined;
 }
 
+export async function updateLeadEmailSent(id: number): Promise<void> {
+  await ready();
+  await db.execute({
+    sql: `UPDATE leads SET email_sent = 1 WHERE id = ?`,
+    args: [id],
+  });
+}
+
+export async function updateBookingEmailSent(id: number): Promise<void> {
+  await ready();
+  await db.execute({
+    sql: `UPDATE bookings SET email_sent = 1 WHERE id = ?`,
+    args: [id],
+  });
+}
+
 export default db;
