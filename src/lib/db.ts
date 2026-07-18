@@ -44,13 +44,21 @@ declare global {
   var __salonDbReady: Promise<void> | undefined;
 }
 
-const db = global.__salonDbClient ?? getClient();
-if (process.env.NODE_ENV !== "production") {
-  global.__salonDbClient = db;
+// Lazy singleton: the client is only created the first time a query actually
+// runs, never just from importing this module. This matters because Next.js
+// briefly imports every route file during the build's "collecting page data"
+// step — if the client were created at import time (top-level), that would
+// try to connect to the database during the build itself, before build-time
+// environment variables are necessarily available in that phase.
+function getDb(): Client {
+  if (!global.__salonDbClient) {
+    global.__salonDbClient = getClient();
+  }
+  return global.__salonDbClient;
 }
 
 async function initSchema(): Promise<void> {
-  await db.execute(`
+  await getDb().execute(`
     CREATE TABLE IF NOT EXISTS leads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -62,7 +70,7 @@ async function initSchema(): Promise<void> {
     )
   `);
 
-  await db.execute(`
+  await getDb().execute(`
     CREATE TABLE IF NOT EXISTS bookings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -122,7 +130,7 @@ export async function insertLead(lead: {
   emailSent: boolean;
 }): Promise<Lead> {
   await ready();
-  const result = await db.execute({
+  const result = await getDb().execute({
     sql: `INSERT INTO leads (name, phone, email, message, email_sent) VALUES (?, ?, ?, ?, ?) RETURNING *`,
     args: [lead.name, lead.phone, lead.email || null, lead.message, lead.emailSent ? 1 : 0],
   });
@@ -131,7 +139,7 @@ export async function insertLead(lead: {
 
 export async function listLeads(): Promise<Lead[]> {
   await ready();
-  const result = await db.execute(`SELECT * FROM leads ORDER BY created_at DESC`);
+  const result = await getDb().execute(`SELECT * FROM leads ORDER BY created_at DESC`);
   return result.rows as unknown as Lead[];
 }
 
@@ -147,7 +155,7 @@ export async function insertBooking(booking: {
   emailSent: boolean;
 }): Promise<Booking> {
   await ready();
-  const result = await db.execute({
+  const result = await getDb().execute({
     sql: `INSERT INTO bookings (name, phone, email, service_id, service_name, preferred_date, preferred_time, notes, email_sent)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
     args: [
@@ -167,13 +175,13 @@ export async function insertBooking(booking: {
 
 export async function listBookings(): Promise<Booking[]> {
   await ready();
-  const result = await db.execute(`SELECT * FROM bookings ORDER BY created_at DESC`);
+  const result = await getDb().execute(`SELECT * FROM bookings ORDER BY created_at DESC`);
   return result.rows as unknown as Booking[];
 }
 
 export async function updateBookingStatus(id: number, status: Booking["status"]): Promise<Booking | undefined> {
   await ready();
-  const result = await db.execute({
+  const result = await getDb().execute({
     sql: `UPDATE bookings SET status = ? WHERE id = ? RETURNING *`,
     args: [status, id],
   });
@@ -182,7 +190,7 @@ export async function updateBookingStatus(id: number, status: Booking["status"])
 
 export async function updateLeadEmailSent(id: number): Promise<void> {
   await ready();
-  await db.execute({
+  await getDb().execute({
     sql: `UPDATE leads SET email_sent = 1 WHERE id = ?`,
     args: [id],
   });
@@ -190,10 +198,10 @@ export async function updateLeadEmailSent(id: number): Promise<void> {
 
 export async function updateBookingEmailSent(id: number): Promise<void> {
   await ready();
-  await db.execute({
+  await getDb().execute({
     sql: `UPDATE bookings SET email_sent = 1 WHERE id = ?`,
     args: [id],
   });
 }
 
-export default db;
+export default getDb;
